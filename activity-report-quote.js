@@ -17,7 +17,7 @@ async function fetchDeals() {
     let start = 0;
 
     const dateStart = '2024-06-01T00:00:00';
-    const dateEnd = '2025-05-01T00:00:00';
+    const dateEnd = '2025-05-19T00:00:00';
 
     dayjs.extend(isoWeek);
     const lastWeekStart = dayjs().subtract(1, 'week').startOf('isoWeek').format('YYYY-MM-DDTHH:mm:ss');
