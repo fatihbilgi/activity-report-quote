@@ -8,7 +8,8 @@ axiosRetry(axios, {
     retries: 5,
     retryDelay: axiosRetry.exponentialDelay,
     retryCondition: (error) => {
-        return error.response?.status === 503 || error.code === 'ECONNABORTED';
+        const status = error.response?.status;
+        return status === 503 || status === 429 || error.code === 'ECONNABORTED';
     }
 });
 
@@ -16,21 +17,24 @@ async function fetchDeals() {
     const deals = [];
     let start = 0;
 
-    const dateStart = '2024-06-01T00:00:00';
-    const dateEnd = '2025-05-19T00:00:00';
-
     dayjs.extend(isoWeek);
-    const lastWeekStart = dayjs().subtract(1, 'week').startOf('isoWeek').format('YYYY-MM-DDTHH:mm:ss');
-    const lastWeekEnd = dayjs().subtract(1, 'week').endOf('isoWeek').format('YYYY-MM-DDTHH:mm:ss');
+    //const lastWeekStart = dayjs().subtract(1, 'week').startOf('isoWeek').format('YYYY-MM-DDTHH:mm:ss');
+    //const lastWeekEnd = dayjs().subtract(1, 'week').endOf('isoWeek').format('YYYY-MM-DDTHH:mm:ss');
+
+    const startDate = dayjs().subtract(7, 'day').startOf('day').format('YYYY-MM-DDTHH:mm:ss');
+    const endDate = dayjs().subtract(1, 'day').endOf('day').format('YYYY-MM-DDTHH:mm:ss');
+
+    console.log(startDate);
+    console.log(endDate);
 
     while (true) {
         const response = await axios.get(`${process.env.BITRIX_URL}/crm.deal.list`, {
             params: {
                 filter: {
-                    //"ID": 149751,
+                    //"ID": 160471,
                     "STAGE_ID": ["1"],
-                    ">=DATE_CREATE": dateStart,
-                    "<=DATE_CREATE": dateEnd
+                    ">=DATE_CREATE": startDate,
+                    "<=DATE_CREATE": endDate
                 },
                 order: { "DATE_CREATE": "DESC" },
                 start: start
@@ -48,6 +52,7 @@ async function fetchDeals() {
         }
     }
 
+    console.log(`Fetched ${deals.length} deals created in the last week.`);
     return deals;
 }
 
@@ -80,7 +85,7 @@ async function fetchActivities(dealId, quoteDate) {
                     "PROVIDER_ID": "CRM_TODO",
                     ">CREATED": quoteDate
                 },
-                order: { "CREATED": "ASC" },
+                order: { "LAST_UPDATED": "ASC" },
                 start: start
             }
         });
@@ -96,6 +101,11 @@ async function fetchActivities(dealId, quoteDate) {
             break;
         }
     }
+
+    // const ordered = activities
+    //     .filter(a => a.LAST_UPDATED)
+    //     .filter(a => new Date(a.LAST_UPDATED) > new Date(quoteDate))
+    //     .sort((a, b) => new Date(a.LAST_UPDATED) - new Date(b.LAST_UPDATED));
 
     return activities.slice(0, 3);
 }
@@ -127,13 +137,15 @@ async function batchUpdateDeals(updates) {
 async function calculateResponseTimes() {
     const deals = await fetchDeals();
     const updates = [];
+    let dealsWithActivity = 0;
 
     for (const deal of deals) {
         const detailDeal = await fetchDealById(deal.ID);
         const quoteTime = detailDeal.UF_CRM_1710157689
         const activities = await fetchActivities(deal.ID, quoteTime);
 
-        if (activities.length > 0 && activities[0].LAST_UPDATED) {
+        if (activities.length > 0) {
+            dealsWithActivity++;
             const first = dayjs(activities[0].LAST_UPDATED).diff(quoteTime, 'minute');
             const second = activities[1]?.LAST_UPDATED
                 ? dayjs(activities[1].LAST_UPDATED).diff(dayjs(activities[0].LAST_UPDATED), 'minute')
@@ -150,6 +162,9 @@ async function calculateResponseTimes() {
             });
         }
     }
+
+    console.log(`Deals with at least one activity: ${dealsWithActivity}`);
+    console.log(`Total deals fetched: ${deals.length}`);
 
     await batchUpdateDeals(updates);
     console.log(`${updates.length} follow up times batched and updated.`);
